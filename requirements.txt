@@ -1,0 +1,2 @@
+sanic==22.6.0
+zeebe-grpc==8.0.1
