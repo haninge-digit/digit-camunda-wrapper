@@ -7,7 +7,6 @@
 import os
 import multiprocessing
 import uuid
-import time
 import logging
 
 import sanic
@@ -68,12 +67,12 @@ async def start_integration(request, process_name: str):
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
-        logging.info(f"Integration call start. Loggid={logg_id:>10}  Integration={process_name}  userID={userid}")
+        logging.info(f"Integration call start. Loggid = {logg_id:>10}  Integration = {process_name}  userID = {userid}")
         response = await stub.CreateProcessInstanceWithResult(
             CreateProcessInstanceWithResultRequest(
                 request=CreateProcessInstanceRequest(bpmnProcessId=process_name, version=-1, variables=json.dumps(query_args)),
                 requestTimeout=MAX_TIME*1000))
-        logging.info(f"Integration call end.   Loggid={logg_id:>10}")
+        logging.info(f"Integration call end.   Loggid = {logg_id:>10}")
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error, process_name)
 
@@ -81,7 +80,7 @@ async def start_integration(request, process_name: str):
     for k in query_args:
         res.pop(k,None)              # Delete query_args if still around (Should be done in the worker?)
 
-    return sanic.response.json(res)
+    return sanic.json(res)
 
 """ 
 Process API
@@ -110,7 +109,7 @@ async def start_process(request, process_name: str):
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error, process_name)
 
-    return sanic.response.json({'processID':response.processInstanceKey})
+    return sanic.json({'processID':response.processInstanceKey})
     
 
 """ 
@@ -141,7 +140,7 @@ async def handler(request, process_name: str):
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error, process_name)
 
-    return sanic.response.text("POSTED")
+    return sanic.text("POSTED")
 
 
 """
@@ -171,7 +170,7 @@ async def handler(request):
     e = [f"{k} = {v}" for k,v in os.environ.items()]
     e.append(f"CPU_CORES = {str(multiprocessing.cpu_count())}")
     e.append("ROUTES = "+", ".join([app.router.routes_all[x].path for x in app.router.routes_all]))
-    return sanic.response.text("\n".join(e)+"\n")
+    return sanic.text("\n".join(e)+"\n")
 
 
 # API that returns the Camunda version.  Can be used to check Camunda liveliness
@@ -188,7 +187,7 @@ async def handler(request):
     t.append(f"Cluster size = {topology.clusterSize}")
     t.append(f"Partitions count = {topology.partitionsCount}")
     t.append(f"Replication factor = {topology.replicationFactor}")
-    return sanic.response.text("\n".join(t)+"\n")
+    return sanic.text("\n".join(t)+"\n")
 
 
 """
@@ -199,18 +198,18 @@ def handle_grpc_errors(grpc_error,process_name=""):
     if grpc_error.code() == grpc.StatusCode.NOT_FOUND:# Process not found
         loggtext = f"Camunda process {process_name} not found"
         logging.error(loggtext)
-        return sanic.response.text(loggtext, status=404)  
+        return sanic.text(loggtext, status=404)  
     if grpc_error.code() == grpc.StatusCode.DEADLINE_EXCEEDED:  # Process timeout
         loggtext = f"Camunda process {process_name} timeout"
         logging.error(loggtext)
-        return sanic.response.text(loggtext, status=504)
+        return sanic.text(loggtext, status=504)
     if grpc_error.code() == grpc.StatusCode.UNAVAILABLE:  # Zeebe not respodning
         loggtext = f"Camunda/Zebee @{ZEEBE_ADDRESS} not responding!"
         logging.fatal(loggtext)
-        return sanic.response.text(loggtext, status=503)
+        return sanic.text(loggtext, status=503)
     loggtext = f"Unknown Camunda error: {grpc_error.code()}"
     logging.fatal(loggtext)
-    return sanic.response.text(loggtext, status=500)  # Unhandled error
+    return sanic.text(loggtext, status=500)  # Unhandled error
 
 
 """
