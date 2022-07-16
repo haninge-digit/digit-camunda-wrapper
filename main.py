@@ -258,6 +258,9 @@ def main():
         logging.fatal(f"Missing JWT_SECRET in environment")
         return      # This will kill the process
 
+    if DISABLE_AUTH:
+        logging.info("API authentication is disabled!")
+
     app.run(host="0.0.0.0", port=8000, access_log=DEBUG_MODE, dev=DEV_MODE)      # Run a single worker on port 8000
 
 if __name__ == '__main__':
