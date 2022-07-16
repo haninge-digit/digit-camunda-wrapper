@@ -17,8 +17,7 @@ from zeebe_grpc import gateway_pb2_grpc
 from zeebe_grpc.gateway_pb2 import (
     CreateProcessInstanceRequest,
     CreateProcessInstanceWithResultRequest,
-    TopologyRequest
-)
+    TopologyRequest)
 
 from auth import protected
 
@@ -74,7 +73,7 @@ async def start_integration(request, process_name: str):
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
-        logging.info(f"Integration call start. Loggid = {logg_id:>10}  Integration = {process_name}  userID = {userid}")
+        logging.info(f"Integration call start. Loggid = {logg_id:>10};  Integration = {process_name};  userID = {userid}")
         response = await stub.CreateProcessInstanceWithResult(
             CreateProcessInstanceWithResultRequest(
                 request=CreateProcessInstanceRequest(bpmnProcessId=process_name, version=-1, variables=json.dumps(query_args)),
@@ -110,7 +109,7 @@ async def start_process(request, process_name: str):
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
-        logging.info(f"Process start.   Loggid={logg_id}  Process={process_name}  userID={userid}")
+        logging.info(f"Process start.   Loggid={logg_id};  Process={process_name};  userID={userid}")
         response = await stub.CreateProcessInstance(
             CreateProcessInstanceRequest(bpmnProcessId=process_name, version=-1, variables=json.dumps(params)))
         logging.info(f"Process started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
@@ -142,7 +141,7 @@ async def handler(request, process_name: str):
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
-        logging.info(f"Process start.   Loggid={logg_id}  Process={process_name}  userID={userid}")
+        logging.info(f"Process start.   Loggid={logg_id};  Process={process_name};  userID={userid}")
         response = await stub.CreateProcessInstance(
             CreateProcessInstanceRequest(bpmnProcessId=process_name, version=-1, variables=json.dumps(params)))
         logging.info(f"Process started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
@@ -241,8 +240,10 @@ import jwt
 from datetime import datetime, timedelta, timezone
 @app.route("/token", methods=['GET'])
 async def handler(request):
-    exp = {"exp": datetime.now(tz=timezone.utc)+timedelta(days=30)}
-    token = jwt.encode(exp, request.app.ctx.jwt_secret, algorithm="HS256")
+    token = "NO KEY AVAILABLE TO GENERATE TOKEN!"
+    if JWT_SECRET is not None:
+        exp = {"exp": datetime.now(tz=timezone.utc)+timedelta(days=30)}
+        token = jwt.encode(exp, request.app.ctx.jwt_secret, algorithm="HS256")
     return sanic.text(token)
 
 
