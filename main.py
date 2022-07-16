@@ -20,6 +20,8 @@ from zeebe_grpc.gateway_pb2 import (
     TopologyRequest
 )
 
+from auth import protected
+
 """ 
 Environment
 """
@@ -27,6 +29,9 @@ Environment
 ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"localhost:26500")
 DEBUG_MODE = os.getenv('DEBUG','false') == "true"
 DEV_MODE = os.getenv('DEV_MODE','false') == "true"
+
+JWT_SECRET = os.getenv('JWT_SECRET')
+DISABLE_AUTH = os.getenv('DISABLE_AUTH','false') == "true"
 
 MAX_TIME = 60 # Max time in seconds to wait for a GET to return result
 LOGFORMAT = "%(asctime)s %(funcName)-10s [%(levelname)s] %(message)s"
@@ -45,20 +50,22 @@ startup and shutdown functions
 @app.before_server_start
 def startup(app, loop):
     logging.info("Starting Camunda Wrapper")
+    app.ctx.jwt_secret = JWT_SECRET
+    app.ctx.disable_auth = DISABLE_AUTH
     app.ctx.channel = grpc.aio.insecure_channel(ZEEBE_ADDRESS)
     app.ctx.stub = gateway_pb2_grpc.GatewayStub(app.ctx.channel)
 
 @app.after_server_stop
 def shutdown(app, loop):
     logging.info("Stopping Camunda Wrapper")
-    app.ctx.channel.close()   # RuntimeWarning: coroutine 'Channel.close' was never awaited ????
-
+    # app.ctx.channel.close()   # Can't do close() here! Can be skipped?
 
 """ 
 Integration API
 """
 
 @app.route("/integration/<process_name:str>", methods=['GET'])
+@protected      # API requires a valid JWT token
 async def start_integration(request, process_name: str):
     stub = request.app.ctx.stub
     query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
@@ -87,6 +94,7 @@ Process API
 """
 
 @app.route("/process/<process_name:str>", methods=['GET', 'POST'])
+@protected      # API requires a valid JWT token
 async def start_process(request, process_name: str):
     if request.method == "GET":
         return await start_integration(request,process_name)  # This is actually an integration?
@@ -117,6 +125,7 @@ Epi forms API
 """
 
 @app.route("/form/process/<process_name:str>", methods=['POST'])
+@protected      # Requires a valid JWT token
 async def handler(request, process_name: str):
     logging.debug(f"Form post to process={process_name}")
 
@@ -221,13 +230,35 @@ Beta API's
 Test and develop API's
 """
 
+# Protected function
+@app.route("/protected", methods=['GET'])
+@protected
+async def handler(request):
+    return sanic.text("Hello World!")
+
+# Create JWT token
+import jwt
+from datetime import datetime, timedelta, timezone
+@app.route("/token", methods=['GET'])
+async def handler(request):
+    exp = {"exp": datetime.now(tz=timezone.utc)+timedelta(days=30)}
+    token = jwt.encode(exp, request.app.ctx.jwt_secret, algorithm="HS256")
+    return sanic.text(token)
+
 
 """
 MAIN function (starting point)
 """
 
-if __name__ == '__main__':
+def main():
     # Enable logging. INFO is default
     logging.basicConfig(level=logging.DEBUG if DEBUG_MODE else logging.INFO, format=LOGFORMAT)     # Default logging level
 
+    if JWT_SECRET is None and not DISABLE_AUTH:
+        logging.fatal(f"Missing JWT_SECRET in environment")
+        return      # This will kill the process
+
     app.run(host="0.0.0.0", port=8000, access_log=DEBUG_MODE, dev=DEV_MODE)      # Run a single worker on port 8000
+
+if __name__ == '__main__':
+    main()
