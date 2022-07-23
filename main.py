@@ -43,7 +43,7 @@ Sanic app instance
 app = sanic.Sanic("Camunda_Wrapper")       # A Sanic instance
 
 """ 
-startup and shutdown functions
+Server startup and shutdown functions
 """
 
 @app.before_server_start
@@ -184,6 +184,7 @@ async def handler(request):
 # API that returns the Camunda version.  Can be used to check Camunda liveliness
 @app.route("/zeebe-engine", methods=['GET'])
 async def handler(request):
+    logging.debug("/zeebe-engine called")
     stub = request.app.ctx.stub
     try:
         topology = await stub.Topology(TopologyRequest())
@@ -241,7 +242,7 @@ from datetime import datetime, timedelta, timezone
 @app.route("/token", methods=['GET'])
 async def handler(request):
     token = "NO KEY AVAILABLE TO GENERATE TOKEN!"
-    if JWT_SECRET is not None:
+    if request.app.ctx.jwt_secret is not None:
         exp = {"exp": datetime.now(tz=timezone.utc)+timedelta(days=30)}
         token = jwt.encode(exp, request.app.ctx.jwt_secret, algorithm="HS256")
     return sanic.text(token)
@@ -262,7 +263,8 @@ def main():
     if DISABLE_AUTH:
         logging.info("API authentication is disabled!")
 
-    app.run(host="0.0.0.0", port=8000, access_log=DEBUG_MODE, dev=DEV_MODE)      # Run a single worker on port 8000
+    app.run(host="0.0.0.0", port=8000, access_log=DEBUG_MODE, motd=DEBUG_MODE, dev=DEV_MODE)      # Run a single worker on port 8000
+
 
 if __name__ == '__main__':
     main()
