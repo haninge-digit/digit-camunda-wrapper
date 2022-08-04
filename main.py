@@ -8,6 +8,7 @@ import os
 import multiprocessing
 import uuid
 import logging
+import asyncio
 
 import sanic
 import json
@@ -17,6 +18,8 @@ from zeebe_grpc import gateway_pb2_grpc
 from zeebe_grpc.gateway_pb2 import (
     CreateProcessInstanceRequest,
     CreateProcessInstanceWithResultRequest,
+    ActivateJobsRequest,
+    CompleteJobRequest,
     TopologyRequest)
 
 from auth import protected
@@ -25,15 +28,16 @@ from auth import protected
 Environment
 """
 
-ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"localhost:26500")
-DEBUG_MODE = os.getenv('DEBUG','false') == "true"
-DEV_MODE = os.getenv('DEV_MODE','false') == "true"
+ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"localhost:26500")            # Zeebe adress and port
+DEBUG_MODE = os.getenv('DEBUG','false') == "true"                       # Enable global DEBUG logging
+DEV_MODE = os.getenv('DEV_MODE','false') == "true"                      # Sanic develpoment mode
 
-JWT_SECRET = os.getenv('JWT_SECRET')
-DISABLE_AUTH = os.getenv('DISABLE_AUTH','false') == "true"
+JWT_SECRET = os.getenv('JWT_SECRET')                                    # Secret (!!!) for JWT generation and verification
+DISABLE_AUTH = os.getenv('DISABLE_AUTH','false') == "true"              # Disable API authentication for testing purposes
+DISABLE_TASK_API = os.getenv('DISABLE_TASK_API','false') == "true"      # Disable wrapper task API for testing purposes
 
-MAX_TIME = 60 # Max time in seconds to wait for a GET to return result
-LOGFORMAT = "%(asctime)s %(funcName)-10s [%(levelname)s] %(message)s"
+MAX_TIME = 60                                                           # Max time in seconds to wait for a GET to return result
+LOGFORMAT = "%(asctime)s %(funcName)-10s [%(levelname)s] %(message)s"   # Log format
 
 
 """ 
@@ -51,13 +55,48 @@ def startup(app, loop):
     logging.info("Starting Camunda Wrapper")
     app.ctx.jwt_secret = JWT_SECRET
     app.ctx.disable_auth = DISABLE_AUTH
+    app.ctx.running = True
     app.ctx.channel = grpc.aio.insecure_channel(ZEEBE_ADDRESS)
     app.ctx.stub = gateway_pb2_grpc.GatewayStub(app.ctx.channel)
+    if not DISABLE_TASK_API:
+        app.ctx.collect_task = asyncio.create_task(collect_task(app.ctx))    # Start collect task
 
 @app.after_server_stop
 def shutdown(app, loop):
     logging.info("Stopping Camunda Wrapper")
+    app.ctx.running = False
     # app.ctx.channel.close()   # Can't do close() here! Can be skipped?
+
+"""
+Asynchronous task that periodically collects active tasks from Camunda
+"""
+
+async def collect_task(ctx):
+    logging.info("Collect Task started!")
+    ctx.active_tasks = []
+    topic = "io.camunda.zeebe:userTask"     # Worker topic for all BPMN user tasks in Zeebe
+    locktime = 1                            # Don't know if this works?
+    worker_id = str(uuid.uuid4().time_low)  # Random worker ID
+    ajr = ActivateJobsRequest(type=topic,worker=worker_id,timeout=locktime,
+                              maxJobsToActivate=10000,requestTimeout=-1)    # Get user tasks request
+    while(ctx.running):
+        async for response in ctx.stub.ActivateJobs(ajr):   # Get all active user tasks
+            active_tasks = []
+            logging.debug(f"Found {len(response.jobs)} active user tasks")
+            for job in response.jobs:   # Loop through all returned user tasks
+                task = {}
+                task['key'] = job.key
+                task['bpmnProcessId'] = job.bpmnProcessId
+                task['elementId'] = job.elementId
+                task['customHeaders'] = json.loads(job.customHeaders)
+                task['variables'] = json.loads(job.variables)
+                active_tasks.append(task)   # Append it to the active_tasks list
+
+        ctx.active_tasks = active_tasks     # Save it for global use
+        await asyncio.sleep(30)      # Collect tasks every 30 seconds
+
+    logging.info("Collect Task stopped!")
+
 
 """ 
 Integration API
@@ -155,17 +194,21 @@ async def handler(request, process_name: str):
 Task API
 """
 
-# @app.route("/tasks/<task_name:str>", methods=['GET', 'POST', 'PUT'])
-# async def handler(request, task_name: str):
-#     query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
-#     async with httpx.AsyncClient() as client:
-#         payload = {"name":task_name}
-#         # payload = {"name":"SIGN Document"}
-#         r = await client.get(f"{CAMUNDA}/task",params=payload)
-        
-#     # return text("OK")
-#     return json(r.json())
+@app.route("/tasks/<jobKey:strorempty>", methods=['GET', 'POST'])
+@protected      # Requires a valid JWT token
+async def handler(request):
+    # GET method returns current acrive user tasks
+    # query args can be bpmnProcessId, elementId and/or assignedTo
+    # No query args returns all user tasks
+    if request.method == "GET":
+        query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
+        res = request.app.ctx.active_tasks
+        # TODO: Filter out tasks
+        return sanic.json(res)
 
+    # POST method completes the requested task with potential updated variables
+    # await stub.CompleteJob(gateway_pb2.CompleteJobRequest(jobKey=job.key, variables=json.dumps(payload)))
+    return sanic.text("OK")
 
 """
 System test API
