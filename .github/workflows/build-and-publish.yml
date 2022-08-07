@@ -9,11 +9,11 @@ on:
   # schedule:
   #   - cron: '21 16 * * *'
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
     # Publish semver tags as releases.
     tags: [ 'v*.*.*' ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
 
 env:
   REGISTRY: ghcr.io
@@ -23,7 +23,7 @@ env:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-    name: Update the echo worker container image
+    name: Update the ${{ env.IMAGE_NAME }} container image
     permissions:
       contents: read
       packages: write
