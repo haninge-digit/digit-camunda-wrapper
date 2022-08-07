@@ -24,10 +24,10 @@ from zeebe_grpc.gateway_pb2 import (
 
 from auth import protected
 
+
 """ 
 Environment
 """
-
 ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"localhost:26500")            # Zeebe adress and port
 DEBUG_MODE = os.getenv('DEBUG','false') == "true"                       # Enable global DEBUG logging
 DEV_MODE = os.getenv('DEV_MODE','false') == "true"                      # Sanic develpoment mode
@@ -43,13 +43,12 @@ LOGFORMAT = "%(asctime)s %(funcName)-10s [%(levelname)s] %(message)s"   # Log fo
 """ 
 Sanic app instance
 """
-
 app = sanic.Sanic("Camunda_Wrapper")       # A Sanic instance
+
 
 """ 
 Server startup and shutdown functions
 """
-
 @app.before_server_start
 def startup(app, loop):
     logging.info("Starting Camunda Wrapper")
@@ -67,10 +66,10 @@ def shutdown(app, loop):
     app.ctx.running = False
     # app.ctx.channel.close()   # Can't do close() here! Can be skipped?
 
+
 """
 Asynchronous task that periodically collects active tasks from Camunda
 """
-
 async def collect_task(ctx):
     logging.info("Collect Task started!")
     ctx.active_tasks = []
@@ -99,12 +98,11 @@ async def collect_task(ctx):
 
 
 """ 
-Integration API
+Worker API
 """
-
-@app.route("/integration/<process_name:str>", methods=['GET'])
+@app.route("/worker/<worker_name:str>", methods=['GET'])
 @protected      # API requires a valid JWT token
-async def start_integration(request, process_name: str):
+async def start_worker(request, worker_name: str):
     stub = request.app.ctx.stub
     query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
 
@@ -112,14 +110,14 @@ async def start_integration(request, process_name: str):
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
-        logging.info(f"Integration call start. Loggid = {logg_id:>10};  Integration = {process_name};  userID = {userid}")
+        logging.info(f"Worker call start. Loggid = {logg_id:>10};  Integration = {worker_name};  userID = {userid}")
         response = await stub.CreateProcessInstanceWithResult(
             CreateProcessInstanceWithResultRequest(
-                request=CreateProcessInstanceRequest(bpmnProcessId=process_name, version=-1, variables=json.dumps(query_args)),
+                request=CreateProcessInstanceRequest(bpmnProcessId=worker_name, version=-1, variables=json.dumps(query_args)),
                 requestTimeout=MAX_TIME*1000))
-        logging.info(f"Integration call end.   Loggid = {logg_id:>10}")
+        logging.info(f"Worker call end.   Loggid = {logg_id:>10}")
     except grpc.aio.AioRpcError as grpc_error:
-        return handle_grpc_errors(grpc_error, process_name)
+        return handle_grpc_errors(grpc_error, worker_name)
 
     res = json.loads(response.variables)
     for k in query_args:
@@ -129,15 +127,15 @@ async def start_integration(request, process_name: str):
 
     return sanic.json(res)
 
+
 """ 
 Process API
 """
-
 @app.route("/process/<process_name:str>", methods=['GET', 'POST'])
 @protected      # API requires a valid JWT token
 async def start_process(request, process_name: str):
     if request.method == "GET":
-        return await start_integration(request,process_name)  # This is actually an integration?
+        return await start_worker(request,process_name)  # This is actually an worker call?
 
     stub = request.app.ctx.stub
 
@@ -163,7 +161,6 @@ async def start_process(request, process_name: str):
 """ 
 Epi forms API
 """
-
 @app.route("/form/process/<process_name:str>", methods=['POST'])
 @protected      # Requires a valid JWT token
 async def handler(request, process_name: str):
@@ -195,7 +192,6 @@ async def handler(request, process_name: str):
 """
 Task API
 """
-
 @app.route("/tasks/<jobKey:strorempty>", methods=['GET', 'POST'])
 @protected      # Requires a valid JWT token
 async def handler(request):
@@ -212,10 +208,10 @@ async def handler(request):
     # await stub.CompleteJob(gateway_pb2.CompleteJobRequest(jobKey=job.key, variables=json.dumps(payload)))
     return sanic.text("OK")
 
+
 """
 System test API
 """
-
 # Returns the process environment variiables. Can be used to check liveliness
 @app.route("/environment", methods=['GET'])
 async def handler(request):
@@ -247,7 +243,6 @@ async def handler(request):
 """
 gRPC error handling functiom
 """
-
 def handle_grpc_errors(grpc_error,process_name=""):
     if grpc_error.code() == grpc.StatusCode.NOT_FOUND:# Process not found
         loggtext = f"Camunda process {process_name} not found"
@@ -267,14 +262,8 @@ def handle_grpc_errors(grpc_error,process_name=""):
 
 
 """
-Beta API's
-"""
-
-
-"""
 Test and develop API's
 """
-
 # Protected function
 @app.route("/protected", methods=['GET'])
 @protected
@@ -296,7 +285,6 @@ async def handler(request):
 """
 MAIN function (starting point)
 """
-
 def main():
     # Enable logging. INFO is default
     logging.basicConfig(level=logging.DEBUG if DEBUG_MODE else logging.INFO, format=LOGFORMAT)     # Default logging level
