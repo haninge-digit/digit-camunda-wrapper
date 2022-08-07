@@ -67,47 +67,19 @@ def shutdown(app, loop):
     # app.ctx.channel.close()   # Can't do close() here! Can be skipped?
 
 
-"""
-Asynchronous task that periodically collects active tasks from Camunda
-"""
-async def collect_task(ctx):
-    logging.info("Collect Task started!")
-    ctx.active_tasks = []
-    topic = "io.camunda.zeebe:userTask"     # Worker topic for all BPMN user tasks in Zeebe
-    locktime = 1                            # Don't know if this works?
-    worker_id = str(uuid.uuid4().time_low)  # Random worker ID
-    ajr = ActivateJobsRequest(type=topic,worker=worker_id,timeout=locktime,
-                              maxJobsToActivate=10000,requestTimeout=-1)    # Get user tasks request
-    while(ctx.running):
-        async for response in ctx.stub.ActivateJobs(ajr):   # Get all active user tasks
-            active_tasks = []
-            logging.debug(f"Found {len(response.jobs)} active user tasks")
-            for job in response.jobs:   # Loop through all returned user tasks
-                task = {}
-                task['key'] = job.key
-                task['bpmnProcessId'] = job.bpmnProcessId
-                task['elementId'] = job.elementId
-                task['customHeaders'] = json.loads(job.customHeaders)
-                task['variables'] = json.loads(job.variables)
-                active_tasks.append(task)   # Append it to the active_tasks list
-
-        ctx.active_tasks = active_tasks     # Save it for global use
-        await asyncio.sleep(30)      # Collect tasks every 30 seconds
-
-    logging.info("Collect Task stopped!")
-
-
 """ 
 Worker API
+This is a GET which calls a Camunda worker and returns the result from that worker.
+All results are in JSON format.
 """
 @app.route("/worker/<worker_name:str>", methods=['GET'])
 @protected      # API requires a valid JWT token
 async def start_worker(request, worker_name: str):
-    stub = request.app.ctx.stub
-    query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
-
     userid = query_args.get('userid',"")    # Just for logging
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
+    stub = request.app.ctx.stub
+
+    query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
 
     try:
         logging.info(f"Worker call start. Loggid = {logg_id:>10};  Integration = {worker_name};  userID = {userid}")
@@ -129,44 +101,44 @@ async def start_worker(request, worker_name: str):
 
 
 """ 
-Process API
+Workflow API
+This is a POST which starts a workflow in Camunda.
+A reference to the started workflow is returned in JSON format.
 """
-@app.route("/process/<process_name:str>", methods=['GET', 'POST'])
+@app.route("/workflow/<workflow_name:str>", methods=['POST'])
 @protected      # API requires a valid JWT token
-async def start_process(request, process_name: str):
-    if request.method == "GET":
-        return await start_worker(request,process_name)  # This is actually an worker call?
-
+async def start_workflow(request, workflow_name: str):
+    userid = query_args.get('userid',"")    # Just for logging
+    logg_id = str(uuid.uuid4().time_low)    # Just for logging
     stub = request.app.ctx.stub
 
     query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
     json_body = {'JSON_BODY':json.dumps(request.json)}         # And the JSON body
-    local_args = {'HTTP_METHOD':request.method, 'PROCESS_NAME':process_name}  # Pass request method and called process
+    local_args = {'HTTP_METHOD':request.method, 'workflow_name':workflow_name}  # Pass request method and called process
     params = query_args | json_body | local_args
 
-    userid = query_args.get('userid',"")    # Just for logging
-    logg_id = str(uuid.uuid4().time_low)    # Just for logging
-
     try:
-        logging.info(f"Process start.   Loggid={logg_id};  Process={process_name};  userID={userid}")
+        logging.info(f"Workflow start.   Loggid={logg_id};  Process={workflow_name};  userID={userid}")
         response = await stub.CreateProcessInstance(
-            CreateProcessInstanceRequest(bpmnProcessId=process_name, version=-1, variables=json.dumps(params)))
-        logging.info(f"Process started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
+            CreateProcessInstanceRequest(bpmnProcessId=workflow_name, version=-1, variables=json.dumps(params)))
+        logging.info(f"Workflow started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
     except grpc.aio.AioRpcError as grpc_error:
-        return handle_grpc_errors(grpc_error, process_name)
+        return handle_grpc_errors(grpc_error, workflow_name)
 
     return sanic.json({'processID':response.processInstanceKey})
     
 
 """ 
 Epi forms API
+Special API tht is "forms aware". Always a POST that starts a process in Camunda.
+A reference to the started process is returned in JSON format.
 """
-@app.route("/form/process/<process_name:str>", methods=['POST'])
+@app.route("/form/<form_process:str>", methods=['POST'])
 @protected      # Requires a valid JWT token
-async def handler(request, process_name: str):
-    logging.debug(f"Form post to process={process_name}")
-
+async def handle_form(request, form_process: str):
     stub = request.app.ctx.stub
+    userid = params.get('userid',"")    # It won't be here. Need to grab it from the form instead
+    logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     if request.content_type == "application/json":
         logging.debug(f"Post JSON form with keys={list(request.json)}")
@@ -175,16 +147,13 @@ async def handler(request, process_name: str):
         logging.debug(f"Post URLencoded form with keys={list(request.form)}")
         params = {k:{"value":v[0]} for k,v in request.form.items()}        # POST has a form body with key/value pairs and with only string values
 
-    userid = params.get('userid',"")    # It won't be here. Need to grab it from the form instead
-    logg_id = str(uuid.uuid4().time_low)    # Just for logging
-
     try:
-        logging.info(f"Process start.   Loggid={logg_id};  Process={process_name};  userID={userid}")
+        logging.info(f"Process start.   Loggid={logg_id};  Process={form_process};  userID={userid}")
         response = await stub.CreateProcessInstance(
-            CreateProcessInstanceRequest(bpmnProcessId=process_name, version=-1, variables=json.dumps(params)))
+            CreateProcessInstanceRequest(bpmnProcessId=form_process, version=-1, variables=json.dumps(params)))
         logging.info(f"Process started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
     except grpc.aio.AioRpcError as grpc_error:
-        return handle_grpc_errors(grpc_error, process_name)
+        return handle_grpc_errors(grpc_error, form_process)
 
     return sanic.text("POSTED")
 
@@ -238,6 +207,49 @@ async def handler(request):
     t.append(f"Partitions count = {topology.partitionsCount}")
     t.append(f"Replication factor = {topology.replicationFactor}")
     return sanic.text("\n".join(t)+"\n")
+
+
+""" 
+Old process API
+Will be removed when v1.0.0 is released!
+"""
+@app.route("/process/<process_name:str>", methods=['GET', 'POST'])
+@protected      # API requires a valid JWT token
+async def start_process(request, process_name: str):
+    if request.method == "GET":
+        return await start_worker(request,process_name)  # This is now a worker call
+    if request.method == "POST":
+        return await start_workflow(request,process_name)  # This is now a workflow call
+
+
+"""
+Asynchronous task that periodically collects active tasks from Camunda
+"""
+async def collect_task(ctx):
+    logging.info("Collect Task started!")
+    ctx.active_tasks = []
+    topic = "io.camunda.zeebe:userTask"     # Worker topic for all BPMN user tasks in Zeebe
+    locktime = 1                            # Don't know if this works?
+    worker_id = str(uuid.uuid4().time_low)  # Random worker ID
+    ajr = ActivateJobsRequest(type=topic,worker=worker_id,timeout=locktime,
+                              maxJobsToActivate=10000,requestTimeout=-1)    # Get user tasks request
+    while(ctx.running):
+        async for response in ctx.stub.ActivateJobs(ajr):   # Get all active user tasks
+            active_tasks = []
+            logging.debug(f"Found {len(response.jobs)} active user tasks")
+            for job in response.jobs:   # Loop through all returned user tasks
+                task = {}
+                task['key'] = job.key
+                task['bpmnProcessId'] = job.bpmnProcessId
+                task['elementId'] = job.elementId
+                task['customHeaders'] = json.loads(job.customHeaders)
+                task['variables'] = json.loads(job.variables)
+                active_tasks.append(task)   # Append it to the active_tasks list
+
+        ctx.active_tasks = active_tasks     # Save it for global use
+        await asyncio.sleep(30)      # Collect tasks every 30 seconds
+
+    logging.info("Collect Task stopped!")
 
 
 """
