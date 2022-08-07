@@ -75,11 +75,11 @@ All results are in JSON format.
 @app.route("/worker/<worker_name:str>", methods=['GET'])
 @protected      # API requires a valid JWT token
 async def start_worker(request, worker_name: str):
-    userid = query_args.get('userid',"")    # Just for logging
-    logg_id = str(uuid.uuid4().time_low)    # Just for logging
     stub = request.app.ctx.stub
 
     query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
+    userid = query_args.get('userid',"")    # Just for logging
+    logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
         logging.info(f"Worker call start. Loggid = {logg_id:>10};  Integration = {worker_name};  userID = {userid}")
@@ -108,14 +108,14 @@ A reference to the started workflow is returned in JSON format.
 @app.route("/workflow/<workflow_name:str>", methods=['POST'])
 @protected      # API requires a valid JWT token
 async def start_workflow(request, workflow_name: str):
-    userid = query_args.get('userid',"")    # Just for logging
-    logg_id = str(uuid.uuid4().time_low)    # Just for logging
     stub = request.app.ctx.stub
 
     query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
     json_body = {'JSON_BODY':json.dumps(request.json)}         # And the JSON body
     local_args = {'HTTP_METHOD':request.method, 'workflow_name':workflow_name}  # Pass request method and called process
     params = query_args | json_body | local_args
+    userid = query_args.get('userid',"")    # Just for logging
+    logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
         logging.info(f"Workflow start.   Loggid={logg_id};  Process={workflow_name};  userID={userid}")
