@@ -27,7 +27,7 @@ from auth import protected
 """ 
 Environment
 """
-ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"camunda8-zeebe-gateway:26500")   # Zeebe adress and port
+ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"camunda8-zeebe-gateway:26500")   # Zeebe address and port
 DEBUG_MODE = os.getenv('DEBUG','false') == "true"                           # Enable global DEBUG logging
 DEV_MODE = os.getenv('DEV_MODE','false') == "true"                          # Sanic develpoment mode
 
@@ -95,8 +95,9 @@ async def start_worker(request, worker_name: str):
     res = json.loads(response.variables)
     if 'DIGIT_ERROR' in res:
         return sanic.text(res['DIGIT_ERROR'], status=400)  # Bad request
-    # for k in query_args:
-    #     res.pop(k,None)              # Delete query_args if still around (Should be done in the worker?)
+
+    for k in query_args:
+        res.pop(k,None)              # Delete query_args from response
     # if 'RESOBJ' in res:             # Return values are a complete json object (should be in DB?)
     #     res = json.loads(res['RESOBJ']['value'])
 
