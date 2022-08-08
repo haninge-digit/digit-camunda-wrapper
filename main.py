@@ -1,7 +1,6 @@
-# camunda-python-wrapper
+# digit-camunda-wrapper
 #
-# This is a convenience API that wraps Camunda process API
-# It implements a GET and a POST method where the GET method waits for Camunda to get to a manual task, where the result is picked up and returned
+# This is a REST and convinience API that wraps Camunda gRPC API
 # 
 
 import os
@@ -58,7 +57,7 @@ def startup(app, loop):
     app.ctx.channel = grpc.aio.insecure_channel(ZEEBE_ADDRESS)
     app.ctx.stub = gateway_pb2_grpc.GatewayStub(app.ctx.channel)
     if not DISABLE_TASK_API:
-        app.ctx.collect_task = asyncio.create_task(collect_task(app.ctx))    # Start collect task
+        app.ctx.collect_tasks = asyncio.create_task(collect_tasks(app.ctx))    # Start collect task
 
 @app.after_server_stop
 def shutdown(app, loop):
@@ -94,6 +93,8 @@ async def start_worker(request, worker_name: str):
         return handle_grpc_errors(grpc_error, worker_name)
 
     res = json.loads(response.variables)
+    if 'DIGIT_ERROR' in res:
+        return sanic.text(res['DIGIT_ERROR'], status=400)  # Bad request
     # for k in query_args:
     #     res.pop(k,None)              # Delete query_args if still around (Should be done in the worker?)
     # if 'RESOBJ' in res:             # Return values are a complete json object (should be in DB?)
@@ -132,7 +133,7 @@ async def start_workflow(request, workflow_name: str):
 
 """ 
 Epi forms API
-Special API tht is "forms aware". Always a POST that starts a process in Camunda.
+Special API that is "forms aware". Always a POST that starts a process in Camunda.
 A reference to the started process is returned in JSON format.
 """
 @app.route("/form/<form_process:str>", methods=['POST'])
@@ -227,15 +228,18 @@ async def start_process(request, process_name: str):
 """
 Asynchronous task that periodically collects active tasks from Camunda
 """
-async def collect_task(ctx):
-    logging.info("Collect Task started!")
-    ctx.active_tasks = []
-    topic = "io.camunda.zeebe:userTask"     # Worker topic for all BPMN user tasks in Zeebe
-    locktime = 1                            # Don't know if this works?
+async def collect_tasks(ctx):
     worker_id = str(uuid.uuid4().time_low)  # Random worker ID
+    logging.info(f"Started to collect user tasks with worker {worker_id}")
+
+    ctx.active_tasks = []                   # Holds all active user tasks
+    topic = "io.camunda.zeebe:userTask"     # Worker topic for all BPMN user tasks in Zeebe
+    locktime = 1                            # Don't know if this parameter works here?
     ajr = ActivateJobsRequest(type=topic,worker=worker_id,timeout=locktime,
-                              maxJobsToActivate=10000,requestTimeout=-1)    # Get user tasks request
+                              maxJobsToActivate=10000,requestTimeout=60000)    # Get user tasks request
+
     while(ctx.running):
+        logging.debug(f"Looking for new tasks")
         async for response in ctx.stub.ActivateJobs(ajr):   # Get all active user tasks
             active_tasks = []
             logging.debug(f"Found {len(response.jobs)} active user tasks")
@@ -249,9 +253,9 @@ async def collect_task(ctx):
                 active_tasks.append(task)   # Append it to the active_tasks list
 
         ctx.active_tasks = active_tasks     # Save it for global use
-        await asyncio.sleep(30)      # Collect tasks every 30 seconds
+        # await asyncio.sleep(30)      # Collect tasks every 30 seconds
 
-    logging.info("Collect Task stopped!")
+    logging.info("collect_tasks stopped!")
 
 
 """
