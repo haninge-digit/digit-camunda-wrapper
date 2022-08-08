@@ -71,13 +71,15 @@ def shutdown(app, loop):
 Worker API
 This is a GET which calls a Camunda worker and returns the result from that worker.
 All results are in JSON format.
+Testing with PATCH method as well
 """
-@app.route("/worker/<worker_name:str>", methods=['GET'])
+@app.route("/worker/<worker_name:str>", methods=['GET', 'PATCH'])
 @protected      # API requires a valid JWT token
 async def start_worker(request, worker_name: str):
     stub = request.app.ctx.stub
 
     query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
+    query_args['HTTP_METHOD'] = request.method  # Pass request method
     userid = query_args.get('userid',"")    # Just for logging
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
