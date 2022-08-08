@@ -94,10 +94,10 @@ async def start_worker(request, worker_name: str):
         return handle_grpc_errors(grpc_error, worker_name)
 
     res = json.loads(response.variables)
-    for k in query_args:
-        res.pop(k,None)              # Delete query_args if still around (Should be done in the worker?)
-    if 'RESOBJ' in res:             # Return values are a complete json object (should be in DB?)
-        res = json.loads(res['RESOBJ']['value'])
+    # for k in query_args:
+    #     res.pop(k,None)              # Delete query_args if still around (Should be done in the worker?)
+    # if 'RESOBJ' in res:             # Return values are a complete json object (should be in DB?)
+    #     res = json.loads(res['RESOBJ']['value'])
 
     return sanic.json(res)
 
