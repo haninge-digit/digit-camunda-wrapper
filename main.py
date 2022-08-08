@@ -28,16 +28,16 @@ from auth import protected
 """ 
 Environment
 """
-ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"localhost:26500")            # Zeebe adress and port
-DEBUG_MODE = os.getenv('DEBUG','false') == "true"                       # Enable global DEBUG logging
-DEV_MODE = os.getenv('DEV_MODE','false') == "true"                      # Sanic develpoment mode
+ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"camunda8-zeebe-gateway:26500")   # Zeebe adress and port
+DEBUG_MODE = os.getenv('DEBUG','false') == "true"                           # Enable global DEBUG logging
+DEV_MODE = os.getenv('DEV_MODE','false') == "true"                          # Sanic develpoment mode
 
-JWT_SECRET = os.getenv('JWT_SECRET',None)                               # Secret (!!!) for JWT generation and verification
-DISABLE_AUTH = os.getenv('DISABLE_AUTH','false') == "true"              # Disable API authentication for testing purposes
-DISABLE_TASK_API = os.getenv('DISABLE_TASK_API','false') == "true"      # Disable wrapper task API for testing purposes
+JWT_SECRET = os.getenv('JWT_SECRET',None)                                   # Secret (!!!) for JWT generation and verification
+DISABLE_AUTH = os.getenv('DISABLE_AUTH','false') == "true"                  # Disable API authentication for testing purposes
+DISABLE_TASK_API = os.getenv('DISABLE_TASK_API','false') == "true"          # Disable wrapper task API for testing purposes
 
-MAX_TIME = 60                                                           # Max time in seconds to wait for a GET to return result
-LOGFORMAT = "%(asctime)s %(funcName)-10s [%(levelname)s] %(message)s"   # Log format
+MAX_TIME = 60                                                               # Max time in seconds to wait for a GET to return result
+LOGFORMAT = "%(asctime)s %(funcName)-10s [%(levelname)s] %(message)s"       # Log format
 
 
 """ 
