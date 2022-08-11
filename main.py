@@ -98,8 +98,6 @@ async def start_worker(request, worker_name:str):
 
     for k in query_args:
         res.pop(k,None)              # Delete query_args from response
-    # if 'RESOBJ' in res:             # Return values are a complete json object (should be in DB?)
-    #     res = json.loads(res['RESOBJ']['value'])
 
     return sanic.json(res)
 
@@ -166,7 +164,7 @@ async def handle_form(request, form_process:str):
 """
 Task API
 """
-@app.route("/tasks/<task_key:strorempty>", methods=['GET', 'POST'])
+@app.route("/task/<task_key:strorempty>", methods=['GET', 'POST'])
 @protected      # Requires a valid JWT token
 async def handler(request, task_key:str):
     if DISABLE_TASK_API:
