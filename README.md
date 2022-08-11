@@ -1,71 +1,52 @@
-# Camunda wrapper
-Camunda har en fast uppsättning API'er som visserligen är omfattande och funktionella men som alltid inte är enkla att förstå och använda.
-För detta ändamål så "wrappar" vi Camunda med en uppsättning lättanvända API'er. Dock behöver API'er vara generiska så att det inte behöver ändras t.ex. beroende på vilket formulär som fyllts i eller vilken verksamhetsprocess som är involverad.
+# Camunda/Zeebe wrapper
 
-### Beta-API'er
-För att kunna testa nya och uppdaterade API'er utan att störa befintliga, finns dessa under egna (och tillfälliga) URL'er.
-Beta-API'erna är identiska sånär som på att dessa börjar med "/beta", t.ex.
-```
-curl -X POST -d '<JSON-struct>' -H "Content-Type: application/json" https://<camunda-url>/beta/form/process/<process-name>/ 
-```
-När API'et tas i produktion, tas "/beta" bort.
+The Camunda/Zeebe wrapper converts the Zeebe gRPC API into a simpler REST-API. It also focus on functions that are performed by (jacaScript) code in Optimizely and logically works as the link between the UI and the underlying production systems.
 
 
-## Skicka in formulär
+It consist of three main functions:
+* An API to start a workflow (a Zeebe process).
+* An API to retrieve and send data from and to a backoffice systems.
+* An API to handle user tasks.
 
-```
-curl -X POST -d '<JSON-struct>' -H "Content-Type: application/json" https://<camunda-url>/form/process/<process-name>/ 
-```
-eller
-```
-curl -X POST -d '<formdata>' -H "Content-Type: "application/x-www-form-urlencoded" https://<camunda-url>/form/process/<process-name>/ 
-```
+## Start a workflow
 
-Ett POST-anrop startar angiven process och skickar parametrarna (nycklar och värden) med den bifogade JSON- eller formsstruktur i startanropet. Anropet är skapat för fomulär där data skickas in och inget data förväntas tillbaka. API'et fungerar “out-of-the-box" för EpiForms.
-
-JSON/formuläret innehåller nycklar och värden för resp. fält i formuläret och läggs in som parametrar vid anropet av angiven process. Alla värden förutsätts vara textsträngar. 
-
-Alla nycklar och värden kommer att läggas in som parametern "variables" enligt https://docs.camunda.org/manual/7.5/reference/rest/process-definition/post-start-process-instance/#request-body  
-
-Anropet returnerar 200 vid OK. De flesta andra returkoder kommer från Camunda och anges med "Camunda error", t.ex. 404 som innebär att angiven process inte finns.
-
-
-## Processanrop utan returvärde
-
-Detta anrop startar en utpekad process i Camunda. Anropssturkturen är namnet på processen anges i URL’en i anropet och måste matcha exakt.
+You start a workflow by calling the wrapper with:
 
 ```
-curl -X [POST,PUT] [-d '<JSON-struct>' -H "Content-Type: application/json"] https://<camunda-url>/process/<process-name>?<query args>
+curl -X POST [-d '<JSON-struct>' -H "Content-Type: application/json"] https://<camunda-url>/workflow/<workflow-name>?<query args>
 ```
 
-Det enda standardiserade värdet i anropet är "userid" som anger användarID på en ev. inloggad användare. Anonyma användare anges med en tom sträng. 
+The call takes both query_args and a JSON body. All values are combined and sent to Zeebe as separate parameters. The workflow name (the process ID in Zeebe) is the the "workflow-name" parameter and must match an existing process in Zeebe.
 
-"query args" kommer att läggas in som separata variabler till Camunda processen. JSON-strukturen kommer att läggas in som en parameter med namnet "JSON_BODY".
-Anropsmetoden läggs in som parametern "HTTP_METHOD" och namnet på den anropade processen som "PROCESS_NAME".
+HTTP response status codes:
+200: Process is started. A JSON is returned, {'processID':processInstanceKey}, where 'processID' is the ID of the just started process. There is current nu possible use of this value for the UI.
+404: The "workflow-name" process does not exist in Zeebe.
+503: Zeebe engine is not available
+504: Zeebe engine didn't respond within the required time limit.
+500: An unknown error has occured.
 
-Mer info fins på https://docs.camunda.org/manual/7.5/reference/rest/process-definition/post-start-process-instance/#request-body  
+## Start a worker (a system integration)
 
-Om processen startar returneras bara "200". Andra returkoder kommer från Camunda och anges med "Camunda error", t.ex. 404 som innebär att angiven process inte finns.
-
-## Processanrop med returvärde
-
-Detta anrop startar en utpekad process i Camunda. Anropssturkturen är namnet på processen anges i URL’en i anropet och måste matcha exakt.
+The call is similar to the workflow call, but instead of a complete workflow a single Camunda worker is started.
 
 ```
-curl -X GET [-d '<JSON-struct>' -H "Content-Type: application/json"] https://<camunda-url>/process/<process-name>?<query args>
+curl -X GET https://<camunda-url>/worker/<worker-name>?<query args>
 ```
-Det enda standardiserade värdet i anropet är "userid" som anger användarID på en ev. inloggad användare. Anonyma användare anges med en tom sträng. 
 
-"query args" kommer att läggas in som separata variabler till Camunda processen. JSON-strukturen kommer att läggas in som en parameter med namnet "JSON_BODY".
-Anropsmetoden läggs in som parametern "HTTP_METHOD" och namnet på den anropade processen som "PROCESS_NAME".
+The call returns a JSON-stucture with the values the worker returned. The exact content and the interpretation of this content is a contract between the UI and the worker.
 
-Mer info fins på https://docs.camunda.org/manual/7.5/reference/rest/process-definition/post-start-process-instance/#request-body  
+HTTP response status codes:
+200: All is good.
+400: The worker returned an error. The error is returned as text.
+404: The "worker" does not exist in Zeebe.
+503: Zeebe engine is not available
+504: Zeebe engine didn't respond within the required time limit.
+500: An unknown error has occured.
 
-Ett GET-anrop syftar till att starta en process som skapar ett specifikt resultat. Resultatet returneras och processen i Camunda avslutas. Alla parametrar i anropet skickas som strängparametrar till processen.  
+## Handle user tasks
 
-I ett steg i processen hämtas alla befintliga parametrar och returneras som en JSON-struktur från detta anrop. Steget i processen är ett "User task" ock ska heta “**GET response**"
+```
+curl -X [GET,POST] https://<camunda-url>/task/<task_id>?<query args>
+```
 
-Om processen löpts igenom returneras "200" tillsammans med en JSON-struktur som hämtas från processsteget “**GET response**". Om detta processsteget saknas eller om processen fastnar före detta processsteg, kommer GET-anropet att så smånigom "tajma" ut.
-
-Andra returkoder kommer från Camunda och anges med "Camunda error", t.ex. 404 som innebär att angiven process inte finns.
-
+*Documentation to be included here.*
