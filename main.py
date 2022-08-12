@@ -35,7 +35,7 @@ JWT_SECRET = os.getenv('JWT_SECRET',None)                                   # Se
 DISABLE_AUTH = os.getenv('DISABLE_AUTH','false') == "true"                  # Disable API authentication for testing purposes
 DISABLE_TASK_API = os.getenv('DISABLE_TASK_API','false') == "true"          # Disable wrapper task API for testing purposes
 
-MAX_TIME = 60                                                               # Max time in seconds to wait for a GET to return result
+MAX_TIME_WORKER = 30                                                        # Max time in seconds to wait for a worker to return result
 LOGFORMAT = "%(asctime)s %(funcName)-10s [%(levelname)s] %(message)s"       # Log format
 
 
@@ -57,7 +57,7 @@ def startup(app, loop):
     app.ctx.channel = grpc.aio.insecure_channel(ZEEBE_ADDRESS)
     app.ctx.stub = gateway_pb2_grpc.GatewayStub(app.ctx.channel)
     if not DISABLE_TASK_API:
-        app.ctx.collect_tasks = asyncio.create_task(collect_tasks(app.ctx))    # Start collect task
+        app.ctx.collect_tasks = asyncio.create_task(collect_tasks(app.ctx))    # Start collect tasks
 
 @app.after_server_stop
 def shutdown(app, loop):
@@ -84,10 +84,9 @@ async def start_worker(request, worker_name:str):
 
     try:
         logging.info(f"Worker call start. Loggid = {logg_id:>10};  Integration = {worker_name};  userID = {userid}")
-        response = await stub.CreateProcessInstanceWithResult(
-            CreateProcessInstanceWithResultRequest(
-                request=CreateProcessInstanceRequest(bpmnProcessId=worker_name, version=-1, variables=json.dumps(query_args)),
-                requestTimeout=MAX_TIME*1000))
+        cpir = CreateProcessInstanceRequest(bpmnProcessId=worker_name, version=-1, variables=json.dumps(query_args))
+        cpiwrr = CreateProcessInstanceWithResultRequest(request=cpir, requestTimeout=MAX_TIME_WORKER*1000)
+        response = await stub.CreateProcessInstanceWithResult(cpiwrr)
         logging.info(f"Worker call end.   Loggid = {logg_id:>10}")
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error, worker_name)
@@ -121,8 +120,8 @@ async def start_workflow(request, workflow_name:str):
 
     try:
         logging.info(f"Workflow start.   Loggid={logg_id};  Process={workflow_name};  userID={userid}")
-        response = await stub.CreateProcessInstance(
-            CreateProcessInstanceRequest(bpmnProcessId=workflow_name, version=-1, variables=json.dumps(params)))
+        cpir = CreateProcessInstanceRequest(bpmnProcessId=workflow_name, version=-1, variables=json.dumps(params))
+        response = await stub.CreateProcessInstance(cpir)
         logging.info(f"Workflow started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error, workflow_name)
@@ -152,13 +151,13 @@ async def handle_form(request, form_process:str):
 
     try:
         logging.info(f"Process start.   Loggid={logg_id};  Process={form_process};  userID={userid}")
-        response = await stub.CreateProcessInstance(
-            CreateProcessInstanceRequest(bpmnProcessId=form_process, version=-1, variables=json.dumps(params)))
+        cpir = CreateProcessInstanceRequest(bpmnProcessId=form_process, version=-1, variables=json.dumps(params))
+        response = await stub.CreateProcessInstance(cpir)
         logging.info(f"Process started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error, form_process)
 
-    return sanic.text("POSTED")
+    return sanic.text("HANDLED")
 
 
 """
@@ -218,7 +217,7 @@ async def handler(request, task_key:str):
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error, "task completion")
 
-    return sanic.text("Completed")
+    return sanic.text("COMPLETED")
 
 
 """
@@ -310,10 +309,10 @@ def handle_grpc_errors(grpc_error,process_name=""):
         loggtext = f"Camunda process {process_name} not found"
         logging.error(loggtext)
         return sanic.text(loggtext, status=404)  
-    if grpc_error.code() == grpc.StatusCode.DEADLINE_EXCEEDED:  # Process timeout
-        loggtext = f"Camunda process {process_name} timeout"
+    if grpc_error.code() == grpc.StatusCode.DEADLINE_EXCEEDED:  # Worker timeout
+        loggtext = f"Camunda worker {process_name} timeout"
         logging.error(loggtext)
-        return sanic.text(loggtext, status=504)
+        return sanic.text(loggtext, status=408)
     if grpc_error.code() == grpc.StatusCode.UNAVAILABLE:  # Zeebe not respodning
         loggtext = f"Camunda/Zebee @{ZEEBE_ADDRESS} not responding!"
         logging.fatal(loggtext)
