@@ -259,6 +259,8 @@ Will be removed when v1.0.0 is released!
 @protected      # API requires a valid JWT token
 async def start_process(request, process_name: str):
     if request.method == "GET":
+        if process_name == "fetchFastighetInfo":
+             process_name = "propertyinfo"       # New worker name
         return await start_worker(request,process_name)  # This is now a worker call
     if request.method == "POST":
         return await start_workflow(request,process_name)  # This is now a workflow call
