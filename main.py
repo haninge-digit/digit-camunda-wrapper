@@ -84,7 +84,8 @@ async def start_worker(request, worker_name:str):
 
     try:
         logging.info(f"Worker call start. Loggid = {logg_id:>10};  Integration = {worker_name};  userID = {userid}")
-        cpir = CreateProcessInstanceRequest(bpmnProcessId=worker_name, version=-1, variables=json.dumps(query_args))
+        worker_process = f"{worker_name}_worker"        # The ID of the worker is now suffixed with "_worker"   **NEW!**
+        cpir = CreateProcessInstanceRequest(bpmnProcessId=worker_process, version=-1, variables=json.dumps(query_args))
         cpiwrr = CreateProcessInstanceWithResultRequest(request=cpir, requestTimeout=MAX_TIME_WORKER*1000)
         response = await stub.CreateProcessInstanceWithResult(cpiwrr)
         logging.info(f"Worker call end.   Loggid = {logg_id:>10}")
