@@ -56,8 +56,6 @@ def startup(app, loop):
     app.ctx.running = True
     app.ctx.channel = grpc.aio.insecure_channel(ZEEBE_ADDRESS)
     app.ctx.stub = gateway_pb2_grpc.GatewayStub(app.ctx.channel)
-    if not DISABLE_TASK_API:
-        app.ctx.collect_tasks = asyncio.create_task(collect_tasks(app.ctx))    # Start collect tasks
 
 @app.after_server_stop
 def shutdown(app, loop):
@@ -68,26 +66,31 @@ def shutdown(app, loop):
 
 """ 
 Worker API
-This is a GET which calls a Camunda worker and returns the result from that worker.
-All results are in JSON format.
-Testing with PATCH method as well
+This API calls a single Camunda worker and returns the result from that worker.
+The API passes on the HTTP-method that calls the API.
+If a json-body is present in the call, it is passed on as a single valirable, _JSON_BODY
+
+All returned results are in JSON format.
 """
-@app.route("/worker/<worker_name:str>", methods=['GET', 'PATCH'])
+@app.route("/worker/<worker_name:str>", methods=['GET', 'PUT', 'POST', 'PATCH', 'DELETE'])
 @protected      # API requires a valid JWT token
 async def start_worker(request, worker_name:str):
     stub = request.app.ctx.stub
 
-    query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
-    query_args['HTTP_METHOD'] = request.method  # Pass request method
-    userid = query_args.get('userid',"")    # Just for logging
+    params = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
+    params['_HTTP_METHOD'] = request.method  # Pass request method
+    params['HTTP_METHOD'] = request.method  # Old style
+    if request.json:
+        params['_JSON_BODY'] = json.dumps(request.json)     # Add JSON-body if it exists
+    userid = params.get('userid',"")    # Just for logging
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
-        logging.info(f"Worker call start. Loggid = {logg_id:>10};  Integration = {worker_name};  userID = {userid}")
+        logging.info(f"Worker call start. Loggid = {logg_id:>10};  Worker = {worker_name};  userID = {userid}")
         worker_process = f"{worker_name}_worker"        # The ID of the worker is now suffixed with "_worker"   **NEW!**
-        cpir = CreateProcessInstanceRequest(bpmnProcessId=worker_process, version=-1, variables=json.dumps(query_args))
+        cpir = CreateProcessInstanceRequest(bpmnProcessId=worker_process, version=-1, variables=json.dumps(params))
         cpiwrr = CreateProcessInstanceWithResultRequest(request=cpir, requestTimeout=MAX_TIME_WORKER*1000)
-        response = await stub.CreateProcessInstanceWithResult(cpiwrr)
+        response = await stub.CreateProcessInstanceWithResult(cpiwrr)       # Start the worker and wait for the result!
         logging.info(f"Worker call end.   Loggid = {logg_id:>10}")
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error, worker_name)
@@ -96,8 +99,8 @@ async def start_worker(request, worker_name:str):
     if 'DIGIT_ERROR' in res:
         return sanic.text(res['DIGIT_ERROR'], status=400)  # Bad request
 
-    for k in query_args:
-        res.pop(k,None)              # Delete query_args from response
+    for k in params:
+        res.pop(k,None)              # Delete passed on params from response
 
     return sanic.json(res)
 
@@ -112,11 +115,11 @@ A reference to the started workflow is returned in JSON format.
 async def start_workflow(request, workflow_name:str):
     stub = request.app.ctx.stub
 
-    query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
-    json_body = {'JSON_BODY':json.dumps(request.json)}         # And the JSON body
-    local_args = {'HTTP_METHOD':request.method, 'workflow_name':workflow_name}  # Pass request method and called process
-    params = query_args | json_body | local_args
-    userid = query_args.get('userid',"")    # Just for logging
+    params = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
+    params['_HTTP_METHOD'] = request.method  # Pass request method
+    if request.json:
+        params['_JSON_BODY'] = json.dumps(request.json)     # Add JSON-body if it exists
+    userid = params.get('userid',"")    # Just for logging
     logg_id = str(uuid.uuid4().time_low)    # Just for logging
 
     try:
@@ -159,66 +162,6 @@ async def handle_form(request, form_process:str):
         return handle_grpc_errors(grpc_error, form_process)
 
     return sanic.text("HANDLED")
-
-
-"""
-Task API
-"""
-@app.route("/task/<task_key:strorempty>", methods=['GET', 'POST'])
-@protected      # Requires a valid JWT token
-async def handler(request, task_key:str):
-    if DISABLE_TASK_API:
-        return sanic.text("Task API is currently not available", status=501)
-
-    query_args = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
-
-    userid = query_args.get('userid',"")
-    if userid == "":
-        return sanic.text("Anonymous task requests are not allowed", status=401)
-    
-    if request.method == "GET":
-        if task_key == "all" or task_key == "":             # A list of all tasks for a user is requested
-            task_id = query_args.get('task_id',"")          # Filter on specifik tasks
-            workflow_id = query_args.get('workflow_id',"")  # and/or specific workflows
-
-            found_tasks = []
-            for key,task in request.app.ctx.active_tasks.items():
-                # task = request.app.ctx.active_tasks[key]
-                if task['assignee'] == userid and (task_id == "" or task_id == task['task_id']) and (workflow_id == "" or workflow_id == task['workflow_id']):
-                    found_tasks.append({'task_key':key, 'task_id':task['task_id'], 'workflow_id':task['workflow_id']})     # Add task that matches
-
-            return sanic.json({'tasks':found_tasks})    # Return the list. Can be empty.
-
-        else:
-            if task_key not in request.app.ctx.active_tasks:
-                return sanic.text(f"Task with key {task_key} not found!", status=404)
-            task = request.app.ctx.active_tasks[task_key]
-            if task_key not in request.app.ctx.active_tasks[task_key]['assignee'] != userid:
-                return sanic.text(f"User {userid} can't retrieve tasks assigned to {request.app.ctx.active_tasks[task_key]['assignee']}", status=403)
-            # TODO: Filter out and complete with relevant information to return
-            return sanic.json(task)                     # Return information about a specific task.
-
-    # POST method completes the requested task with potential updated variables
-    if task_key == "":
-        return sanic.text(f"Post task must have a valid key in the URL!", status=400)
-    if task_key not in request.app.ctx.active_tasks:
-        return sanic.text(f"Task with key {task_key} not found!", status=404)
-    if task_key not in request.app.ctx.active_tasks[task_key]['assignee'] != userid:
-        return sanic.text(f"User {userid} can't complete tasks assigned to {request.app.ctx.active_tasks[task_key]['assignee']}", status=403)
-
-    if request.content_type == "application/json":
-        payload = request.json  # Some new variables to add to flow
-    else:
-        payload = {}            # Nothing to add
-    try:
-        cjr = CompleteJobRequest(jobKey=int(task_key), variables=json.dumps(payload))   # Complete task with possibly added variables
-        await request.app.ctx.stub.CompleteJob(cjr)     # Do it!
-        if task_key in request.app.ctx.active_tasks:
-            del request.app.ctx.active_tasks[task_key]      # Delete it from active task list. Would have been removed at the next collect_tasks loop.
-    except grpc.aio.AioRpcError as grpc_error:
-        return handle_grpc_errors(grpc_error, "task completion")
-
-    return sanic.text("COMPLETED")
 
 
 """
@@ -265,43 +208,6 @@ async def start_process(request, process_name: str):
         return await start_worker(request,process_name)  # This is now a worker call
     if request.method == "POST":
         return await start_workflow(request,process_name)  # This is now a workflow call
-
-
-"""
-Asynchronous task that periodically collects active tasks from Camunda
-"""
-async def collect_tasks(ctx):
-    worker_id = str(uuid.uuid4().time_low)  # Random worker ID
-    logging.info(f"Started to collect user tasks with worker {worker_id}")
-
-    ctx.active_tasks = {}                   # Holds all active user tasks. Task id (job.key) is the key
-    topic = "io.camunda.zeebe:userTask"     # Worker topic for all BPMN user tasks in Zeebe
-    locktime = 1*60*1000                    # A too long time will create a delay on restarts (when task status is lost)
-    max_jobcnt = 10000                      # Can't be too many?
-    max_poll_time = 2*60*1000               # Probaly "lagom". If less than locktime, poll will return after lock expires
-    ajr = ActivateJobsRequest(type=topic,worker=worker_id,
-                              timeout=locktime,
-                              maxJobsToActivate=max_jobcnt,
-                              requestTimeout=max_poll_time)    # Get user tasks request
-
-    while(ctx.running):
-        logging.debug(f"Looking for new tasks")
-        active_tasks = {}
-        async for response in ctx.stub.ActivateJobs(ajr):   # Get all active user tasks
-            logging.debug(f"Found {len(response.jobs)} active user tasks")
-            for job in response.jobs:   # Loop through all returned user tasks
-                task = {}
-                task['workflow_id'] = job.bpmnProcessId
-                task['task_id'] = job.elementId
-                task['task_variables'] = json.loads(job.customHeaders)
-                task['assignee'] = task['task_variables']['io.camunda.zeebe:assignee']
-                task['workflow_variables'] = json.loads(job.variables)
-                active_tasks[str(job.key)] = task   # Add it to the active_tasks list. Task key (a string) is the key
-                logging.debug(f"Task {job.key} is assigned to {task['assignee']}")
-
-        ctx.active_tasks = active_tasks     # Save it for global use
-
-    logging.info("collect_tasks stopped!")
 
 
 """
