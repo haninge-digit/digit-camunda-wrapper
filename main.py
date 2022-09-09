@@ -97,7 +97,9 @@ async def start_worker(request, worker_name:str):
 
     res = json.loads(response.variables)
     if 'DIGIT_ERROR' in res:
-        return sanic.text(res['DIGIT_ERROR'], status=400)  # Bad request
+        res['_DIGIT_ERROR'] = res['DIGIT_ERROR']    # Temporary patch for old error-convention
+    if '_DIGIT_ERROR' in res:
+        return sanic.text(res['_DIGIT_ERROR'], status=400)  # Bad request
 
     for k in params:
         res.pop(k,None)              # Delete passed on params from response
