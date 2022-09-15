@@ -35,7 +35,7 @@ JWT_SECRET = os.getenv('JWT_SECRET',None)                                   # Se
 DISABLE_AUTH = os.getenv('DISABLE_AUTH','false') == "true"                  # Disable API authentication for testing purposes
 DISABLE_TASK_API = os.getenv('DISABLE_TASK_API','false') == "true"          # Disable wrapper task API for testing purposes
 
-MAX_TIME_WORKER = 30                                                        # Max time in seconds to wait for a worker to return result
+MAX_TIME_WORKER = 60                                                        # Max time in seconds to wait for a worker to return result
 LOGFORMAT = "%(asctime)s %(funcName)-10s [%(levelname)s] %(message)s"       # Log format
 
 
