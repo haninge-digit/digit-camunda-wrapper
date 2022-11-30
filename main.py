@@ -167,9 +167,25 @@ A reference to the started process is returned in JSON format.
 
 
 """
+LifeCheck API
+Used by UI-apps to detect if Camunda is alife
+"""
+
+@app.route("/lifecheck", methods=['GET'])
+async def handler(request):
+    logging.debug("/lifecheck called")
+    stub = request.app.ctx.stub
+    try:
+        topology = await stub.Topology(TopologyRequest())
+    except grpc.aio.AioRpcError as grpc_error:
+        return handle_grpc_errors(grpc_error)
+    return sanic.text("( ͡❛ ͜ʖ ͡❛)")     # All OK!
+
+
+"""
 System test API
 """
-# Returns the process environment variiables. Can be used to check liveliness
+# Returns the process environment variables. Can be used to check pod liveliness
 @app.route("/environment", methods=['GET'])
 async def handler(request):
     logging.debug("/environment called")
@@ -179,7 +195,7 @@ async def handler(request):
     return sanic.text("\n".join(e)+"\n")
 
 
-# API that returns the Camunda version.  Can be used to check Camunda liveliness
+# API that returns the Camunda version.
 @app.route("/zeebe-engine", methods=['GET'])
 async def handler(request):
     logging.debug("/zeebe-engine called")
