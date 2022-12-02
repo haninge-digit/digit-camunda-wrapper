@@ -179,7 +179,7 @@ async def handler(request):
         topology = await stub.Topology(TopologyRequest())
     except grpc.aio.AioRpcError as grpc_error:
         return handle_grpc_errors(grpc_error)
-    return sanic.text("( ͡❛ ͜ʖ ͡❛)")     # All OK!
+    return sanic.json(["( ͡❛ ͜ʖ ͡❛)"])     # All OK!
 
 
 """
