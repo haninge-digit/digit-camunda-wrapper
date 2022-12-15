@@ -21,7 +21,7 @@ from zeebe_grpc.gateway_pb2 import (
     CompleteJobRequest,
     TopologyRequest)
 
-from auth import protected
+# from auth import protected
 
 
 """ 
@@ -31,7 +31,7 @@ ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"camunda8-zeebe-gateway:26500")   # Ze
 DEBUG_MODE = os.getenv('DEBUG','false') == "true"                           # Enable global DEBUG logging
 DEV_MODE = os.getenv('DEV_MODE','false') == "true"                          # Sanic develpoment mode
 
-JWT_SECRET = os.getenv('JWT_SECRET',None)                                   # Secret (!!!) for JWT generation and verification
+# JWT_SECRET = os.getenv('JWT_SECRET',None)                                   # Secret (!!!) for JWT generation and verification
 DISABLE_AUTH = os.getenv('DISABLE_AUTH','false') == "true"                  # Disable API authentication for testing purposes
 DISABLE_TASK_API = os.getenv('DISABLE_TASK_API','false') == "true"          # Disable wrapper task API for testing purposes
 
@@ -51,8 +51,8 @@ Server startup and shutdown functions
 @app.before_server_start
 def startup(app, loop):
     logging.info("Starting Camunda Wrapper")
-    app.ctx.jwt_secret = JWT_SECRET
-    app.ctx.disable_auth = DISABLE_AUTH
+    # app.ctx.jwt_secret = JWT_SECRET
+    # app.ctx.disable_auth = DISABLE_AUTH
     app.ctx.running = True
     app.ctx.channel = grpc.aio.insecure_channel(ZEEBE_ADDRESS)
     app.ctx.stub = gateway_pb2_grpc.GatewayStub(app.ctx.channel)
@@ -73,13 +73,13 @@ If a json-body is present in the call, it is passed on as a single valirable, _J
 All returned results are in JSON format.
 """
 @app.route("/worker/<worker_name:str>", methods=['GET', 'PUT', 'POST', 'PATCH', 'DELETE'])
-@protected      # API requires a valid JWT token
+# @protected      # API requires a valid JWT token
 async def start_worker(request, worker_name:str):
     stub = request.app.ctx.stub
 
     params = {q[0]:q[1] for q in request.get_query_args(keep_blank_values=True)}     # Grab all query_args
     params['_HTTP_METHOD'] = request.method  # Pass request method
-    params['HTTP_METHOD'] = request.method  # Old style
+    # params['HTTP_METHOD'] = request.method  # Old style
     if request.json:
         params['_JSON_BODY'] = json.dumps(request.json)     # Add JSON-body if it exists
     userid = params.get('userid',"")    # Just for logging
@@ -96,8 +96,8 @@ async def start_worker(request, worker_name:str):
         return handle_grpc_errors(grpc_error, worker_name)
 
     res = json.loads(response.variables)
-    if 'DIGIT_ERROR' in res:
-        res['_DIGIT_ERROR'] = res['DIGIT_ERROR']    # Temporary patch for old error-convention
+    # if 'DIGIT_ERROR' in res:
+    #     res['_DIGIT_ERROR'] = res['DIGIT_ERROR']    # Temporary patch for old error-convention
     if '_DIGIT_ERROR' in res:
         return sanic.text(res['_DIGIT_ERROR'], status=400)  # Bad request
 
@@ -113,7 +113,7 @@ This is a POST which starts a workflow in Camunda.
 A reference to the started workflow is returned in JSON format.
 """
 @app.route("/workflow/<workflow_name:str>", methods=['POST'])
-@protected      # API requires a valid JWT token
+# @protected      # API requires a valid JWT token
 async def start_workflow(request, workflow_name:str):
     stub = request.app.ctx.stub
 
@@ -140,36 +140,52 @@ Epi forms API
 Special API that is "forms aware". Always a POST that starts a process in Camunda.
 A reference to the started process is returned in JSON format.
 """
-@app.route("/form/<form_process:str>", methods=['POST'])
-@protected      # Requires a valid JWT token
-async def handle_form(request, form_process:str):
+# @app.route("/form/<form_process:str>", methods=['POST'])
+# # @protected      # Requires a valid JWT token
+# async def handle_form(request, form_process:str):
+#     stub = request.app.ctx.stub
+#     logg_id = str(uuid.uuid4().time_low)    # Just for logging
+
+#     if request.content_type == "application/json":
+#         logging.debug(f"Post JSON form with keys={list(request.json)}")
+#         params = {k:{"value":v} for k,v in request.json.items()}        # POST has a json body with key/value pairs and with only string values
+#     if request.content_type == "application/x-www-form-urlencoded":
+#         logging.debug(f"Post URLencoded form with keys={list(request.form)}")
+#         params = {k:{"value":v[0]} for k,v in request.form.items()}        # POST has a form body with key/value pairs and with only string values
+
+#     userid = params.get('userid',"")    # It won't be here. Need to grab it from the form instead
+
+#     try:
+#         logging.info(f"Process start.   Loggid={logg_id};  Process={form_process};  userID={userid}")
+#         cpir = CreateProcessInstanceRequest(bpmnProcessId=form_process, version=-1, variables=json.dumps(params))
+#         response = await stub.CreateProcessInstance(cpir)
+#         logging.info(f"Process started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
+#     except grpc.aio.AioRpcError as grpc_error:
+#         return handle_grpc_errors(grpc_error, form_process)
+
+#     return sanic.text("HANDLED")
+
+
+"""
+LifeCheck API
+Used by UI-apps to detect if Camunda is alife
+"""
+
+@app.route("/lifecheck", methods=['GET'])
+async def handler(request):
+    logging.debug("/lifecheck called")
     stub = request.app.ctx.stub
-    logg_id = str(uuid.uuid4().time_low)    # Just for logging
-
-    if request.content_type == "application/json":
-        logging.debug(f"Post JSON form with keys={list(request.json)}")
-        params = {k:{"value":v} for k,v in request.json.items()}        # POST has a json body with key/value pairs and with only string values
-    if request.content_type == "application/x-www-form-urlencoded":
-        logging.debug(f"Post URLencoded form with keys={list(request.form)}")
-        params = {k:{"value":v[0]} for k,v in request.form.items()}        # POST has a form body with key/value pairs and with only string values
-
-    userid = params.get('userid',"")    # It won't be here. Need to grab it from the form instead
-
     try:
-        logging.info(f"Process start.   Loggid={logg_id};  Process={form_process};  userID={userid}")
-        cpir = CreateProcessInstanceRequest(bpmnProcessId=form_process, version=-1, variables=json.dumps(params))
-        response = await stub.CreateProcessInstance(cpir)
-        logging.info(f"Process started. Loggid={logg_id}  Version={response.version}  Instance={response.processInstanceKey}")
+        topology = await stub.Topology(TopologyRequest())
     except grpc.aio.AioRpcError as grpc_error:
-        return handle_grpc_errors(grpc_error, form_process)
-
-    return sanic.text("HANDLED")
+        return handle_grpc_errors(grpc_error)
+    return sanic.json(["( ͡❛ ͜ʖ ͡❛)"])     # All OK!
 
 
 """
 System test API
 """
-# Returns the process environment variiables. Can be used to check liveliness
+# Returns the process environment variables. Can be used to check pod liveliness
 @app.route("/environment", methods=['GET'])
 async def handler(request):
     logging.debug("/environment called")
@@ -179,7 +195,7 @@ async def handler(request):
     return sanic.text("\n".join(e)+"\n")
 
 
-# API that returns the Camunda version.  Can be used to check Camunda liveliness
+# API that returns the Camunda version.
 @app.route("/zeebe-engine", methods=['GET'])
 async def handler(request):
     logging.debug("/zeebe-engine called")
@@ -201,15 +217,15 @@ async def handler(request):
 Old process API
 Will be removed when v1.0.0 is released!
 """
-@app.route("/process/<process_name:str>", methods=['GET', 'POST'])
-@protected      # API requires a valid JWT token
-async def start_process(request, process_name: str):
-    if request.method == "GET":
-        if process_name == "fetchFastighetInfo":
-             process_name = "propertyinfo"       # New worker name
-        return await start_worker(request,process_name)  # This is now a worker call
-    if request.method == "POST":
-        return await start_workflow(request,process_name)  # This is now a workflow call
+# @app.route("/process/<process_name:str>", methods=['GET', 'POST'])
+# @protected      # API requires a valid JWT token
+# async def start_process(request, process_name: str):
+#     if request.method == "GET":
+#         if process_name == "fetchFastighetInfo":
+#              process_name = "propertyinfo"       # New worker name
+#         return await start_worker(request,process_name)  # This is now a worker call
+#     if request.method == "POST":
+#         return await start_workflow(request,process_name)  # This is now a workflow call
 
 
 """
@@ -236,22 +252,22 @@ def handle_grpc_errors(grpc_error,process_name=""):
 """
 Test and develop API's
 """
-# Protected function
-@app.route("/protected", methods=['GET'])
-@protected
-async def handler(request):
-    return sanic.text("Hello World!")
+# # Protected function
+# @app.route("/protected", methods=['GET'])
+# # @protected
+# async def handler(request):
+#     return sanic.text("Hello World!")
 
-# Create JWT token
-import jwt
-from datetime import datetime, timedelta, timezone
-@app.route("/token", methods=['GET'])
-async def handler(request):
-    token = "NO KEY AVAILABLE TO GENERATE TOKEN!"
-    if request.app.ctx.jwt_secret is not None:
-        exp = {"exp": datetime.now(tz=timezone.utc)+timedelta(days=30)}
-        token = jwt.encode(exp, request.app.ctx.jwt_secret, algorithm="HS256")
-    return sanic.text(token)
+# # Create JWT token
+# import jwt
+# from datetime import datetime, timedelta, timezone
+# @app.route("/token", methods=['GET'])
+# async def handler(request):
+#     token = "NO KEY AVAILABLE TO GENERATE TOKEN!"
+#     if request.app.ctx.jwt_secret is not None:
+#         exp = {"exp": datetime.now(tz=timezone.utc)+timedelta(days=30)}
+#         token = jwt.encode(exp, request.app.ctx.jwt_secret, algorithm="HS256")
+#     return sanic.text(token)
 
 
 """
@@ -261,14 +277,14 @@ def main():
     # Enable logging. INFO is default
     logging.basicConfig(level=logging.DEBUG if DEBUG_MODE else logging.INFO, format=LOGFORMAT)     # Default logging level
 
-    if JWT_SECRET is None and not DISABLE_AUTH:
-        logging.fatal(f"Missing JWT_SECRET in environment")
-        return      # This will kill the process
+    # if JWT_SECRET is None and not DISABLE_AUTH:
+    #     logging.fatal(f"Missing JWT_SECRET in environment")
+    #     return      # This will kill the process
 
-    if DISABLE_AUTH:
-        logging.info("API authentication is disabled!")
-    if DISABLE_TASK_API:
-        logging.info("Task API is disabled!")
+    # if DISABLE_AUTH:
+    #     logging.info("API authentication is disabled!")
+    # if DISABLE_TASK_API:
+    #     logging.info("Task API is disabled!")
 
 
     app.run(host="0.0.0.0", port=8000, access_log=DEBUG_MODE, motd=DEBUG_MODE, dev=DEV_MODE)      # Run a single worker on port 8000
