@@ -148,7 +148,7 @@ A reference to the uploaded file is returned to the app, that can be used to pas
 Methods for retrieval and deletion of uploaded files are also available.
 """
 @app.route("/filer/<file_id:strorempty>", methods=['POST', 'GET', 'DELETE'])
-@protected      # Requires a valid JWT token
+# @protected      # Requires a valid JWT token
 async def handle_files(request, file_id:str):
     # multipart/form-data
     if request.method == 'POST':
