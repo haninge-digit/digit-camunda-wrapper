@@ -7,10 +7,12 @@ import os
 import multiprocessing
 import uuid
 import logging
-import asyncio
+import json
+import time
+
 
 import sanic
-import json
+from motor.motor_asyncio import AsyncIOMotorClient
 
 import grpc
 from zeebe_grpc import gateway_pb2_grpc
@@ -28,6 +30,9 @@ from zeebe_grpc.gateway_pb2 import (
 Environment
 """
 ZEEBE_ADDRESS = os.getenv('ZEEBE_ADDRESS',"camunda8-zeebe-gateway:26500")   # Zeebe address and port
+MONGO_ROOT_PWD = os.getenv('MONGO_ROOT_PWD')                              # MONGO_DB root password (no default)
+MONGO_HOST = os.getenv('MONGO_HOST', "mongodb.mongodb:27017")
+
 DEBUG_MODE = os.getenv('DEBUG','false') == "true"                           # Enable global DEBUG logging
 DEV_MODE = os.getenv('DEV_MODE','false') == "true"                          # Sanic develpoment mode
 
@@ -134,6 +139,45 @@ async def start_workflow(request, workflow_name:str):
 
     return sanic.json({'processID':response.processInstanceKey})
     
+
+"""
+Filer API
+This API is used for handling file uploading from apps.
+All files are stored outside Camunda, in a separate storage.
+A reference to the uploaded file is returned to the app, that can be used to pass on to a worker and workflow
+Methods for retrieval and deletion of uploaded files are also available.
+"""
+@app.route("/filer/<file_id:strorempty>", methods=['POST', 'GET', 'DELETE'])
+@protected      # Requires a valid JWT token
+async def handle_files(request, file_id:str):
+    # multipart/form-data
+    if request.method == 'POST':
+        if len(request.files) != 1:
+            return sanic.text("Missing file or more than one file!", status=400)  # Bad request
+        fid = request.files.get(list(request.files)[0])     # Get the only file that is there
+        if not fid:
+            return sanic.text("Missing file data!", status=400)  # Bad request
+        file_name_type = fid.name.split('.')[-1]
+        file_type = fid.type.split('/')[-1]
+        if len(fid.body) > 16000000:
+            return sanic.text("File cannot be larger than 16 MB!", status=400)  # Bad request
+        try:
+            mongo = AsyncIOMotorClient(f"mongodb://root:{MONGO_ROOT_PWD}@{MONGO_HOST}")
+            file_collection = mongo.BlobStorage.Files
+            record = {'name': fid.name, 'type': fid.type, 'size': len(fid.body),
+                      'created': int(time.time()), 'accessed': int(time.time()),
+                      'status': "uploaded", 'data': fid.body}
+            res = await file_collection.insert_one(record)
+            object_id = str(res.inserted_id)
+            logging.info(f"Uploaded file.    Name={fid.name};  Size={len(fid.body)};  Object ID={object_id}")
+
+        except Exception as e:
+            return sanic.text(f"MongoDB call returned {str(e)}", status=503)  # Bad request
+    else:
+        return sanic.text(f"{request.method} method is not yet implemented!", status=501)  # Not Yet Implemented
+
+    return sanic.json({'id': object_id})
+
 
 """ 
 Epi forms API

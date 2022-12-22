@@ -28,6 +28,11 @@ spec:
               value: 'false'
             - name: ZEEBE_ADDRESS
               value: camunda8-zeebe-gateway:26500
+            - name: MONGO_ROOT_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-root-password
             - name: DISABLE_AUTH
               value: 'true'
             - name: JWT_SECRET
