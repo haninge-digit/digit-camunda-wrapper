@@ -104,7 +104,7 @@ async def start_worker(request, worker_name:str):
     # if 'DIGIT_ERROR' in res:
     #     res['_DIGIT_ERROR'] = res['DIGIT_ERROR']    # Temporary patch for old error-convention
     if '_DIGIT_ERROR' in res:
-        status_code = res.get('_DIGIT_ERROR_CODE'),400)
+        status_code = res.get('_DIGIT_ERROR_CODE',400)
         return sanic.text(res['_DIGIT_ERROR'], status=status_code)  # Bad request
 
     for k in params:
