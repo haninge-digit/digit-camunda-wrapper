@@ -3,4 +3,4 @@ sanic>=22.9,<22.10
 PyJWT>=2.6,<2.7
 # The next two are for Zeebe
 zeebe-grpc>=8.0.4,<8.1.0
-grpcio>=1.50,<1.52
+grpcio>=1.50,<1.53
